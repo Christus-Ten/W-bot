@@ -1,23 +1,136 @@
+const axios = require('axios');
+
+function toCmdFont(text = "") {
+  const map = {
+    A:"𝖠",B:"𝖡",C:"𝖢",D:"𝖣",E:"𝖤",F:"𝖥",G:"𝖦",H:"𝖧",I:"𝖨",J:"𝖩",
+    K:"𝖪",L:"𝖫",M:"𝖬",N:"𝖭",O:"𝖮",P:"𝖯",Q:"𝖰",R:"𝖱",S:"𝖲",T:"𝖳",
+    U:"𝖴",V:"𝖵",W:"𝖶",X:"𝖷",Y:"𝖸",Z:"𝖹",
+    a:"𝖺",b:"𝖻",c:"𝖼",d:"𝖽",e:"𝖾",f:"𝖿",g:"𝗀",h:"𝗁",i:"𝗂",j:"𝗃",
+    k:"𝗄",l:"𝗅",m:"𝗆",n:"𝗇",o:"𝗈",p:"𝗉",q:"𝗊",r:"𝗋",s:"𝗌",t:"𝗍",
+    u:"𝗎",v:"𝗏",w:"𝗐",x:"𝗑",y:"𝗒",z:"𝗓", " ":" "
+  };
+  return text.split("").map(c => map[c] || c).join("");
+}
+
+function toQuestionFont(text = "") {
+  const map = {
+    A:"𝐴",B:"𝐵",C:"𝐶",D:"𝐷",E:"𝐸",F:"𝐹",G:"𝐺",H:"𝐻",I:"𝐼",J:"𝐽",
+    K:"𝐾",L:"𝐿",M:"𝑀",N:"𝑁",O:"𝑂",P:"𝑃",Q:"𝑄",R:"𝑅",S:"𝑆",T:"𝑇",
+    U:"𝑈",V:"𝑉",W:"𝑊",X:"𝑋",Y:"𝑌",Z:"𝑍",
+    a:"𝑎",b:"𝑏",c:"",d:"𝑑",e:"𝑒",f:"𝑓",g:"𝑔",h:"ℎ",i:"𝑖",j:"𝑗",
+    k:"𝑘",l:"𝑙",m:"𝑚",n:"𝑛",o:"𝑜",p:"𝑝",q:"𝑞",r:"𝑟",s:"𝑠",t:"𝑡",
+    u:"𝑢",v:"𝑣",w:"𝑤",x:"𝑥",y:"𝑦",z:"𝑧", " ":" "
+  };
+  return text.split("").map(c => map[c] || c).join("");
+}
+
 module.exports = {
   config: {
-    name: 'help',
-    prefix: true,
+    name: "help",
+    version: "6.3",
+    author: "Christus",
+    countDown: 2,
     role: 0,
-    category: 'utility',
-    aliases: ['commands'],
-    author: 'ArYAN',
-    version: '0.0.2',
+    category: "info",
+    prefix: true,
+    description: { en: "Explore all bot commands" },
+    guide: { en: "{pn} <command> | {pn} -ai <cmd> <question>" }
   },
 
-  async onStart({ api, chatId, args, cmds, prefix }) {
-    const commands = cmds;
+  onStart: async function ({ sock, chatId, event, senderId, args, cmds, prefix }) {
+    try {
+      let ppUrl;
+      try {
+        ppUrl = await sock.profilePictureUrl(senderId, 'image');
+      } catch {
+        ppUrl = "https://cdn-icons-png.flaticon.com/512/149/149071.png";
+      }
 
-    if (args.length) {
+      if (args[0]?.toLowerCase() === "-ai") {
+        const cmdName = args[1]?.toLowerCase();
+        const questionRaw = args.slice(2).join(" ");
+
+        if (!cmdName) {
+          return sock.sendMessage(chatId, { 
+            image: { url: ppUrl }, 
+            caption: `❌ Usage: ${prefix}help -ai <command> <question>` 
+          }, { quoted: event });
+        }
+
+        let command = cmds.get(cmdName);
+        if (!command) {
+          for (const [, c] of cmds) {
+            if (c.config.aliases?.includes(cmdName)) {
+              command = c;
+              break;
+            }
+          }
+        }
+
+        if (!command) {
+          return sock.sendMessage(chatId, { 
+            image: { url: ppUrl }, 
+            caption: `❌ Command "${cmdName}" not found.` 
+          }, { quoted: event });
+        }
+
+        const info = `
+Command Name: ${command.config.name}
+Description: ${command.config.description?.en || "No description"}
+Category: ${command.config.category || "Misc"}
+Aliases: ${command.config.aliases?.join(", ") || "None"}
+Role: ${command.config.role}
+Cooldown: ${command.config.countDown}s
+`;
+
+        const prompt = `You are an assistant. Info:\n${info}\nUser question: ${questionRaw || "Explain this command."}\nAnswer clearly without * characters.`;
+
+        try {
+          const { data } = await axios.get(`https://christus-api.vercel.app/ai/gemini-proxy2?prompt=${encodeURIComponent(prompt)}`);
+          let aiReply = (data?.result || "No AI response.").replace(/\*/g, "");
+          const styledQuestion = toQuestionFont(questionRaw || "Explain how to use this command.");
+
+          return sock.sendMessage(chatId, {
+            image: { url: ppUrl },
+            caption: `🤖 AI Assistant — ${command.config.name}\n\n❓ ${styledQuestion}\n\n${aiReply}`
+          }, { quoted: event });
+        } catch (err) {
+          return sock.sendMessage(chatId, { text: "❌ AI request failed." }, { quoted: event });
+        }
+      }
+
+      if (!args.length) {
+        const categories = {};
+        const uniqueCommands = new Set();
+
+        for (const [name, cmd] of cmds) {
+          if (uniqueCommands.has(cmd.config.name)) continue;
+          uniqueCommands.add(cmd.config.name);
+          const cat = cmd.config.category || "Misc";
+          if (!categories[cat]) categories[cat] = [];
+          categories[cat].push(cmd.config.name);
+        }
+
+        let body = "📚 NIX BOT COMMANDS\n\n";
+        Object.keys(categories).sort().forEach(cat => {
+          const list = categories[cat].sort().map(c => `• ${toCmdFont(c)}`).join("  ");
+          body += `🍓 ${cat.toUpperCase()}\n${list}\n\n`;
+        });
+
+        body += `📊 Total: ${uniqueCommands.size}\n`;
+        body += `🔧 Info: ${prefix}help <cmd>\n`;
+        body += `🤖 AI: ${prefix}help -ai <cmd> <question>`;
+
+        return sock.sendMessage(chatId, { 
+          image: { url: ppUrl }, 
+          caption: body 
+        }, { quoted: event });
+      }
+
       const query = args[0].toLowerCase();
-      let cmd = commands.get(query);
-
+      let cmd = cmds.get(query);
       if (!cmd) {
-        for (const [, c] of commands) {
+        for (const [, c] of cmds) {
           if (c.config.aliases?.includes(query)) {
             cmd = c;
             break;
@@ -25,85 +138,33 @@ module.exports = {
         }
       }
 
-      if (!cmd) return await api.sendMessage(chatId, { text: `No command called "${query}".` });
+      if (!cmd) {
+        return sock.sendMessage(chatId, { text: `❌ Command "${query}" not found.` }, { quoted: event });
+      }
 
-      const info = cmd.config;
+      const roleMap = { 0: "Everyone", 1: "Group Admin", 2: "Bot Admin", 3: "Owner" };
+      const cfg = cmd.config;
+      const guideText = cfg.guide?.en || cfg.guide || "No guide available";
+      const usage = guideText.replace(/\{pn\}/g, `${prefix}${cfg.name}`).replace(/\{p\}/g, prefix);
 
-      const roleLabels = {
-        0: "Everyone",
-        1: "Group Admin",
-        2: "Bot Admin / Sudo",
-        3: "Owner Only"
-      };
-      const roleText = roleLabels[info.role] || `Role ${info.role}`;
+      const detail = [
+        `✨ ${toCmdFont(cfg.name.toUpperCase())} ✨`,
+        `📝 Description: ${cfg.description?.en || cfg.description || "None"}`,
+        `📂 Category: ${cfg.category || "Misc"}`,
+        `🔤 Aliases: ${cfg.aliases?.length ? cfg.aliases.join(", ") : "None"}`,
+        `🛡️ Role: ${roleMap[cfg.role] || cfg.role} | ⏱️ Cooldown: ${cfg.countDown || 0}s`,
+        `🚀 Version: ${cfg.version} | 👨‍💻 Author: ${cfg.author}`,
+        `💡 Usage: ${usage}`
+      ].join("\n");
 
-      const nixPrefixText = info.nixPrefix === false ? "false" : "true";
+      return sock.sendMessage(chatId, { 
+        image: { url: ppUrl }, 
+        caption: detail 
+      }, { quoted: event });
 
-      const descText = typeof info.description === "object"
-        ? (info.description.en || "No description")
-        : (info.description || "No description");
-
-      const guideText = typeof info.guide === "object"
-        ? (info.guide.en || "No guide available")
-        : (info.guide || "No guide available");
-
-      const usageGuide = guideText.replace(/\{pn\}/g, `${prefix}${info.name}`).replace(/\{p\}/g, prefix);
-
-      const cooldown = info.countDown || info.coolDown || 0;
-
-      let detail = `╭──── 〔 ${info.name.toUpperCase()} 〕 ────◊\n`;
-      detail += `│\n`;
-      detail += `│ Name: ${info.name}\n`;
-      detail += `│ Aliases: ${info.aliases?.length ? info.aliases.join(', ') : 'None'}\n`;
-      detail += `│ Category: ${(info.category || 'uncategorized').toUpperCase()}\n`;
-      detail += `│ Permission: ${roleText}\n`;
-      detail += `│ Role: ${info.role}\n`;
-      detail += `│ NixPrefix: ${nixPrefixText}\n`;
-      detail += `│ Cooldown: ${cooldown}s\n`;
-      detail += `│ Version: ${info.version || 'N/A'}\n`;
-      detail += `│ Author: ${info.author || 'Unknown'}\n`;
-      detail += `│\n`;
-      detail += `│ Description:\n`;
-      detail += `│ ${descText}\n`;
-      detail += `│\n`;
-      detail += `│ Usage:\n`;
-      detail += `│ ${usageGuide}\n`;
-      detail += `│\n`;
-      detail += `╰─────────────────────◊`;
-
-      return await api.sendMessage(chatId, { text: detail });
+    } catch (e) {
+      console.error(e);
+      sock.sendMessage(chatId, { text: "⚠️ Error in help command." }, { quoted: event });
     }
-
-    const cats = {};
-    const uniqueCommands = new Set();
-
-    for (const [name, cmd] of commands) {
-      if (uniqueCommands.has(cmd.config.name)) continue;
-      uniqueCommands.add(cmd.config.name);
-
-      const cat = cmd.config.category || 'UNCATEGORIZED';
-      if (!cats[cat]) cats[cat] = [];
-      cats[cat].push(cmd.config.name);
-    }
-
-    let msg = '';
-    Object.keys(cats).sort().forEach(cat => {
-      msg += `╭─────『 ${cat.toUpperCase()} 』\n`;
-      cats[cat].sort().forEach(n => {
-        msg += `│ ▸ ${n}\n`;
-      });
-      msg += `╰──────────────\n`;
-    });
-
-    msg += `\n╭──────────────◊\n`;
-    msg += `│ » Total commands: ${uniqueCommands.size}\n`;
-    msg += `│ » Prefix: ${prefix}\n`;
-    msg += `│ » Type ${prefix}help <cmd> for details\n`;
-    msg += `│ » A Powerful Whatsapp Bot\n`;
-    msg += `│ » Aryan Rayhan\n`;
-    msg += `╰──────────◊\n`;
-    msg += `「 NixBot 」`;
-
-    await api.sendMessage(chatId, { text: msg });
   }
 };
