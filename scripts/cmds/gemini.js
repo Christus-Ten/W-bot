@@ -5,7 +5,7 @@ const { uploadImage } = global.utils;
 module.exports = {
   config: {
     name: "gemini",
-    aliases: ["ai", "chat"],
+    aliases: ["chat"],
     version: "0.0.1",
     author: "ArYAN",
     countDown: 3,
